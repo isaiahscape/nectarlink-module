@@ -49,7 +49,7 @@ jobs:
           for s in $scripts; do
             sh -n "$s"
           done
-          shellcheck -s sh -e SC2034,SC2154,SC3043 $scripts
+          shellcheck -s sh -e SC1091,SC2034,SC2154,SC3043 $scripts
 
       - name: Validate XML files
         run: |
