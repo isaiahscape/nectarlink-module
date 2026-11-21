@@ -176,7 +176,7 @@ jobs:
           sed -i "s/^version=.*/version=v${{ steps.meta.outputs.version }}/" module.prop
           sed -i "s/^versionCode=.*/versionCode=${{ steps.meta.outputs.version_code }}/" module.prop
 
-          chmod +x action.sh customize.sh service.sh uninstall.sh META-INF/com/google/android/update-binary
+          chmod +x action.sh customize.sh post-fs-data.sh service.sh uninstall.sh META-INF/com/google/android/update-binary
 
           ZIP_NAME="nectarlink-services-v${{ steps.meta.outputs.version }}.zip"
           zip -r9 "out/$ZIP_NAME" . \

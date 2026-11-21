@@ -25,7 +25,7 @@ jobs:
 
       - name: Check LF line endings
         run: |
-          for f in module.prop sepolicy.rule action.sh customize.sh service.sh uninstall.sh \
+          for f in module.prop sepolicy.rule action.sh customize.sh post-fs-data.sh service.sh uninstall.sh \
                    META-INF/com/google/android/update-binary \
                    $(find system -name '*.xml'); do
             if grep -q $'\r' "$f"; then
@@ -45,7 +45,7 @@ jobs:
 
       - name: Lint shell scripts
         run: |
-          scripts="action.sh customize.sh service.sh uninstall.sh META-INF/com/google/android/update-binary"
+          scripts="action.sh customize.sh post-fs-data.sh service.sh uninstall.sh META-INF/com/google/android/update-binary"
           for s in $scripts; do
             sh -n "$s"
           done

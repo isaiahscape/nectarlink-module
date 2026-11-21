@@ -77,16 +77,35 @@ start_shell_bridge() {
   rm -f "$OUT"
 
   if [ -z "$PORT" ]; then
+    log -t NectarlinkShell "ShellBridgeServer failed to announce ready port" 2>/dev/null
     kill "$WORKER_PID" >/dev/null 2>&1
     wait "$WORKER_PID" >/dev/null 2>&1
     return 1
   fi
 
-  am broadcast --user 0 \
-    -n app.nectarlink.services/.service.ShellBridgeReceiver \
-    -a app.nectarlink.services.ACTION_SHELL_READY \
-    --ei shell_port "$PORT" \
-    --es shell_token "$TOKEN" >/dev/null 2>&1
+  log -t NectarlinkShell "ShellBridgeServer ready on loopback port $PORT" 2>/dev/null
+
+  broadcast_ready() {
+    am broadcast --user 0 -f 0x10000000 \
+      -p app.nectarlink.services \
+      -a app.nectarlink.services.ACTION_SHELL_READY \
+      --ei shell_port "$PORT" \
+      --es shell_token "$TOKEN" >/dev/null 2>&1
+    am broadcast --user 0 -f 0x10000000 \
+      -n app.nectarlink.services/.service.ShellBridgeReceiver \
+      -a app.nectarlink.services.ACTION_SHELL_READY \
+      --ei shell_port "$PORT" \
+      --es shell_token "$TOKEN" >/dev/null 2>&1
+  }
+
+  broadcast_ready
+  (
+    for DELAY in 2 4 9 15; do
+      sleep "$DELAY"
+      kill -0 "$WORKER_PID" >/dev/null 2>&1 || exit 0
+      broadcast_ready
+    done
+  ) &
 
   wait "$WORKER_PID" >/dev/null 2>&1
   return 0
