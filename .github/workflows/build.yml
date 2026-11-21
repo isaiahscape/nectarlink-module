@@ -1,0 +1,214 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+name: Build Flashable Module
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  pull_request:
+  workflow_dispatch:
+    inputs:
+      services_ref:
+        description: Git ref for isaiahscape/nectarlink-services
+        required: false
+        default: "main"
+      nectarlink_ref:
+        description: Git ref for isaiahscape/nectarlink
+        required: false
+        default: "main"
+      version:
+        description: Override module/APK version (optional, e.g. 0.1.0)
+        required: false
+        default: ""
+      include_app:
+        description: Bundle Nectarlink client APK in the module
+        type: boolean
+        required: false
+        default: true
+      abis:
+        description: Android ABIs to build for Nectarlink core
+        required: false
+        default: "arm64-v8a,armeabi-v7a"
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: Build APKs & Module Zip
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout module
+        uses: actions/checkout@v7
+
+      - name: Checkout nectarlink-services
+        uses: actions/checkout@v7
+        with:
+          repository: isaiahscape/nectarlink-services
+          ref: ${{ github.event.inputs.services_ref || 'main' }}
+          path: src/nectarlink-services
+
+      - name: Checkout nectarlink
+        if: ${{ github.event.inputs.include_app != 'false' && github.event.inputs.include_app != false }}
+        uses: actions/checkout@v7
+        with:
+          repository: isaiahscape/nectarlink
+          ref: ${{ github.event.inputs.nectarlink_ref || 'main' }}
+          path: src/nectarlink
+
+      - name: Resolve version metadata
+        id: meta
+        run: |
+          PROP_VER="$(grep -E '^version=' module.prop | cut -d= -f2- | sed 's/^v//')"
+          PROP_CODE="$(grep -E '^versionCode=' module.prop | cut -d= -f2-)"
+          VER="${{ github.event.inputs.version }}"
+          if [ -z "$VER" ] && [[ "${{ github.ref }}" == refs/tags/v* ]]; then
+            VER="${GITHUB_REF_NAME#v}"
+          fi
+          VER="${VER:-${PROP_VER:-0.1.0}}"
+          CODE="${PROP_CODE:-1}"
+          if [ "${{ github.run_number }}" -gt "$CODE" ] 2>/dev/null; then
+            CODE="${{ github.run_number }}"
+          fi
+          echo "version=$VER" >> "$GITHUB_OUTPUT"
+          echo "version_code=$CODE" >> "$GITHUB_OUTPUT"
+
+      - name: Setup Java 21
+        uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: "21"
+
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v4
+        with:
+          cmdline-tools-version: "16111833"
+          packages: "platforms;android-37.0 ndk;30.0.16248370 build-tools;37.0.0"
+
+      - name: Setup Rust toolchain
+        if: ${{ github.event.inputs.include_app != 'false' && github.event.inputs.include_app != false }}
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: stable
+          targets: aarch64-linux-android,armv7-linux-androideabi,x86_64-linux-android
+
+      - name: Rust cache
+        if: ${{ github.event.inputs.include_app != 'false' && github.event.inputs.include_app != false }}
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src/nectarlink
+
+      - name: Install cargo-ndk
+        if: ${{ github.event.inputs.include_app != 'false' && github.event.inputs.include_app != false }}
+        run: |
+          if ! command -v cargo-ndk >/dev/null 2>&1; then
+            cargo install --locked cargo-ndk
+          fi
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v6
+
+      - name: Prepare signing keystore
+        id: signing
+        env:
+          KEYSTORE: ${{ secrets.ANDROID_KEYSTORE }}
+          KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+        run: |
+          if [ -n "$KEYSTORE" ] && [ -n "$KEYSTORE_PASSWORD" ]; then
+            echo "$KEYSTORE" | base64 -d > "$RUNNER_TEMP/release.jks"
+            echo "signed=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "signed=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Build Nectarlink Services APK
+        working-directory: src/nectarlink-services
+        env:
+          NECTARLINK_SERVICES_KEYSTORE: ${{ steps.signing.outputs.signed == 'true' && format('{0}/release.jks', runner.temp) || '' }}
+          NECTARLINK_SERVICES_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          NECTARLINK_SERVICES_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS || 'nectarlink' }}
+        run: |
+          chmod +x gradlew
+          ./gradlew --no-daemon testDebugUnitTest :service:lintDebug :service:assembleRelease \
+            -Pservices.version="${{ steps.meta.outputs.version }}" \
+            -Pservices.versionCode="${{ steps.meta.outputs.version_code }}"
+
+      - name: Build Nectarlink Client APK
+        if: ${{ github.event.inputs.include_app != 'false' && github.event.inputs.include_app != false }}
+        working-directory: src/nectarlink/android
+        env:
+          NECTARLINK_KEYSTORE: ${{ steps.signing.outputs.signed == 'true' && format('{0}/release.jks', runner.temp) || '' }}
+          NECTARLINK_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+        run: |
+          chmod +x gradlew
+          ./gradlew --no-daemon assembleRelease \
+            -Pnectarlink.abis="${{ github.event.inputs.abis || 'arm64-v8a,armeabi-v7a' }}"
+
+      - name: Stage APKs and build flashable module zip
+        run: |
+          mkdir -p out
+          SVC_SRC="src/nectarlink-services/service/build/outputs/apk/release/service-release.apk"
+          SVC_DEST="system/system_ext/priv-app/NectarlinkServices/NectarlinkServices.apk"
+          APP_SRC="src/nectarlink/android/app/build/outputs/apk/release/app-release.apk"
+          APP_DEST="system/product/app/Nectarlink/Nectarlink.apk"
+          APKSIGNER="$ANDROID_HOME/build-tools/37.0.0/apksigner"
+
+          if [ ! -f "$SVC_SRC" ] || [ "$(stat -c%s "$SVC_SRC")" -lt 1024 ]; then
+            echo "Built NectarlinkServices APK is missing or too small" >&2
+            exit 1
+          fi
+          "$APKSIGNER" verify --print-certs "$SVC_SRC"
+          cp "$SVC_SRC" "$SVC_DEST"
+          cp "$SVC_SRC" out/NectarlinkServices.apk
+
+          if [ "${{ github.event.inputs.include_app }}" != "false" ]; then
+            if [ ! -f "$APP_SRC" ] || [ "$(stat -c%s "$APP_SRC")" -lt 1024 ]; then
+              echo "Built Nectarlink APK is missing or too small" >&2
+              exit 1
+            fi
+            "$APKSIGNER" verify --print-certs "$APP_SRC"
+            cp "$APP_SRC" "$APP_DEST"
+            cp "$APP_SRC" out/Nectarlink.apk
+          else
+            rm -f "$APP_DEST"
+          fi
+
+          # Keep module.prop version synced for tagged/custom releases
+          sed -i "s/^version=.*/version=v${{ steps.meta.outputs.version }}/" module.prop
+          sed -i "s/^versionCode=.*/versionCode=${{ steps.meta.outputs.version_code }}/" module.prop
+
+          chmod +x action.sh customize.sh service.sh uninstall.sh META-INF/com/google/android/update-binary
+
+          ZIP_NAME="nectarlink-services-v${{ steps.meta.outputs.version }}.zip"
+          zip -r9 "out/$ZIP_NAME" . \
+            -x ".git/*" ".git" ".github/*" ".github" "src/*" "src" "out/*" "out" ".gitignore" ".gitattributes"
+
+          # Verify module.prop is at zip root and real APKs are packaged
+          unzip -l "out/$ZIP_NAME" | grep -E "^\s+[0-9]+.*\smodule\.prop$"
+          unzip -l "out/$ZIP_NAME" | grep "NectarlinkServices.apk"
+
+          (cd out && rm -f SHA256SUMS.txt && sha256sum *.zip *.apk > SHA256SUMS.txt)
+          cat out/SHA256SUMS.txt
+
+      - name: Clean up signing keystore
+        if: always()
+        run: rm -f "$RUNNER_TEMP/release.jks"
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v7
+        with:
+          name: nectarlink-module-v${{ steps.meta.outputs.version }}
+          path: |
+            out/*.zip
+            out/*.apk
+            out/SHA256SUMS.txt
+          retention-days: 30
+
+      - name: Create GitHub Release
+        if: startsWith(github.ref, 'refs/tags/v')
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" out/*.zip out/*.apk out/SHA256SUMS.txt \
+            --title "$GITHUB_REF_NAME" \
+            --generate-notes

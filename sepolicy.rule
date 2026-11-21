@@ -1,0 +1,1 @@
+allow priv_app uhid_device chr_file { read write open ioctl getattr }

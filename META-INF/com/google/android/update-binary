@@ -1,0 +1,42 @@
+#!/sbin/sh
+# SPDX-License-Identifier: GPL-3.0-or-later
+
+umask 022
+
+ui_print() {
+  echo "$1"
+}
+
+require_new_magisk() {
+  ui_print "***********************************"
+  ui_print " Please install Magisk v20.4+!     "
+  ui_print "***********************************"
+  exit 1
+}
+
+OUTFD=$2
+ZIPFILE=$3
+
+mount /data 2>/dev/null
+
+[ -f /data/adb/magisk/util_functions.sh ] || require_new_magisk
+. /data/adb/magisk/util_functions.sh
+
+[ "$MAGISK_VER_CODE" -lt 20400 ] && require_new_magisk
+
+setup_flashable
+mount_partitions
+api_level_arch_detect
+eval "$BOOTMODE" || recovery_actions
+
+ui_print "- Extracting module files"
+unzip -o "$ZIPFILE" -x 'META-INF/*' -d "$MODPATH" >&2
+
+[ -f "$MODPATH/customize.sh" ] && . "$MODPATH/customize.sh"
+
+set_permissions
+$BOOTMODE || recovery_cleanup
+rm -rf "$TMPDIR"
+
+ui_print "- Done"
+exit 0

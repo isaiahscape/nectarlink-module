@@ -1,0 +1,6 @@
+id=nectarlink-services
+name=Nectarlink Services
+version=v0.1.0
+versionCode=1
+author=NectarLink
+description=System-level integration for NectarLink (screen mirroring, input, audio, clipboard) across Magisk, KernelSU, and APatch/FolkPatch.

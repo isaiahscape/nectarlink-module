@@ -1,0 +1,8 @@
+# Build outputs & checked-out source repositories
+/out/
+/src/
+*.zip
+*.jks
+*.keystore
+.DS_Store
+Thumbs.db
