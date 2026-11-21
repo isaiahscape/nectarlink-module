@@ -1,0 +1,119 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+name: Lint
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  module-lint:
+    name: Module Scripts & XML
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install xmllint
+        run: |
+          if ! command -v xmllint >/dev/null 2>&1; then
+            sudo apt-get update && sudo apt-get install -y --no-install-recommends libxml2-utils
+          fi
+
+      - name: Check LF line endings
+        run: |
+          for f in module.prop sepolicy.rule action.sh customize.sh service.sh uninstall.sh \
+                   META-INF/com/google/android/update-binary \
+                   $(find system -name '*.xml'); do
+            if grep -q $'\r' "$f"; then
+              echo "CRLF detected in $f" >&2
+              exit 1
+            fi
+          done
+
+      - name: Validate module.prop
+        run: |
+          for key in id name version versionCode author description; do
+            if ! grep -Eq "^${key}=.+" module.prop; then
+              echo "Missing $key in module.prop" >&2
+              exit 1
+            fi
+          done
+
+      - name: Lint shell scripts
+        run: |
+          scripts="action.sh customize.sh service.sh uninstall.sh META-INF/com/google/android/update-binary"
+          for s in $scripts; do
+            sh -n "$s"
+          done
+          shellcheck -s sh -e SC2034,SC2154,SC3043 $scripts
+
+      - name: Validate XML files
+        run: |
+          find system -name '*.xml' -print0 | xargs -0 xmllint --noout
+
+  services-lint:
+    name: Nectarlink Services Lint & Tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          repository: isaiahscape/nectarlink-services
+          ref: main
+
+      - uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: "21"
+
+      - uses: android-actions/setup-android@v4
+        with:
+          cmdline-tools-version: "16111833"
+          packages: "platforms;android-37.0 build-tools;37.0.0"
+
+      - uses: gradle/actions/setup-gradle@v6
+
+      - name: Run unit tests and Android lint
+        run: |
+          chmod +x gradlew
+          ./gradlew --no-daemon testDebugUnitTest :service:lintDebug
+
+  nectarlink-lint:
+    name: Nectarlink Android Lint & Tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          repository: isaiahscape/nectarlink
+          ref: main
+
+      - name: Install Rust toolchain and Android targets
+        run: |
+          rustup show active-toolchain || rustup toolchain install
+          rustup target add aarch64-linux-android x86_64-linux-android
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Install cargo-ndk
+        run: cargo install --locked cargo-ndk
+
+      - uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: "21"
+
+      - uses: android-actions/setup-android@v4
+        with:
+          cmdline-tools-version: "16111833"
+          packages: "platforms;android-37.0 ndk;30.0.16248370 build-tools;37.0.0"
+
+      - uses: gradle/actions/setup-gradle@v6
+
+      - name: Run unit tests and Android lint
+        working-directory: android
+        run: |
+          chmod +x gradlew
+          ./gradlew --no-daemon testDebugUnitTest lintDebug

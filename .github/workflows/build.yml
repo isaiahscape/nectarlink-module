@@ -3,9 +3,7 @@ name: Build Flashable Module
 
 on:
   push:
-    branches: [main]
     tags: ["v*"]
-  pull_request:
   workflow_dispatch:
     inputs:
       services_ref:
@@ -87,10 +85,10 @@ jobs:
 
       - name: Setup Rust toolchain
         if: ${{ github.event.inputs.include_app != 'false' && github.event.inputs.include_app != false }}
-        uses: dtolnay/rust-toolchain@master
-        with:
-          toolchain: stable
-          targets: aarch64-linux-android,armv7-linux-androideabi,x86_64-linux-android
+        working-directory: src/nectarlink
+        run: |
+          rustup show active-toolchain || rustup toolchain install
+          rustup target add aarch64-linux-android armv7-linux-androideabi x86_64-linux-android
 
       - name: Rust cache
         if: ${{ github.event.inputs.include_app != 'false' && github.event.inputs.include_app != false }}
@@ -113,9 +111,17 @@ jobs:
         env:
           KEYSTORE: ${{ secrets.ANDROID_KEYSTORE }}
           KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
         run: |
           if [ -n "$KEYSTORE" ] && [ -n "$KEYSTORE_PASSWORD" ]; then
             echo "$KEYSTORE" | base64 -d > "$RUNNER_TEMP/release.jks"
+            {
+              echo "NECTARLINK_SERVICES_KEYSTORE=$RUNNER_TEMP/release.jks"
+              echo "NECTARLINK_SERVICES_KEYSTORE_PASSWORD=$KEYSTORE_PASSWORD"
+              echo "NECTARLINK_SERVICES_KEY_ALIAS=${KEY_ALIAS:-nectarlink}"
+              echo "NECTARLINK_KEYSTORE=$RUNNER_TEMP/release.jks"
+              echo "NECTARLINK_KEYSTORE_PASSWORD=$KEYSTORE_PASSWORD"
+            } >> "$GITHUB_ENV"
             echo "signed=true" >> "$GITHUB_OUTPUT"
           else
             echo "signed=false" >> "$GITHUB_OUTPUT"
@@ -123,10 +129,6 @@ jobs:
 
       - name: Build Nectarlink Services APK
         working-directory: src/nectarlink-services
-        env:
-          NECTARLINK_SERVICES_KEYSTORE: ${{ steps.signing.outputs.signed == 'true' && format('{0}/release.jks', runner.temp) || '' }}
-          NECTARLINK_SERVICES_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
-          NECTARLINK_SERVICES_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS || 'nectarlink' }}
         run: |
           chmod +x gradlew
           ./gradlew --no-daemon testDebugUnitTest :service:lintDebug :service:assembleRelease \
@@ -136,9 +138,6 @@ jobs:
       - name: Build Nectarlink Client APK
         if: ${{ github.event.inputs.include_app != 'false' && github.event.inputs.include_app != false }}
         working-directory: src/nectarlink/android
-        env:
-          NECTARLINK_KEYSTORE: ${{ steps.signing.outputs.signed == 'true' && format('{0}/release.jks', runner.temp) || '' }}
-          NECTARLINK_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
         run: |
           chmod +x gradlew
           ./gradlew --no-daemon assembleRelease \
