@@ -459,13 +459,14 @@ jobs:
               lines.append(f"• <a href=\"{rel_url}\">Pre-release {pre_tag}</a>")
 
           payload = json.dumps({
-              "chat_id": os.environ["CHAT_ID"],
+              "chat_id": os.environ["CHAT_ID"].strip(),
               "text": "\n".join(lines),
               "parse_mode": "HTML",
               "disable_web_page_preview": True,
           }).encode("utf-8")
+          bot_token = os.environ["BOT_TOKEN"].strip()
           req = urllib.request.Request(
-              f"https://api.telegram.org/bot{os.environ['BOT_TOKEN']}/sendMessage",
+              f"https://api.telegram.org/bot{bot_token}/sendMessage",
               data=payload,
               headers={"Content-Type": "application/json"},
           )

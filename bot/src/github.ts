@@ -42,7 +42,7 @@ async function ghFetch<T>(env: Env, path: string, init?: RequestInit): Promise<T
     ...init,
     headers: {
       ...baseHeaders,
-      Authorization: `Bearer ${env.GITHUB_TOKEN}`,
+      Authorization: `Bearer ${env.GITHUB_TOKEN.trim()}`,
     },
   });
   // Fine-grained PATs scoped to MODULE_REPO return 403 on other owners' public repos; retry without auth.
@@ -70,7 +70,7 @@ async function ghExists(env: Env, path: string): Promise<boolean> {
   const res = await fetch(`https://api.github.com${path}`, {
     headers: {
       Accept: "application/vnd.github+json",
-      Authorization: `Bearer ${env.GITHUB_TOKEN}`,
+      Authorization: `Bearer ${env.GITHUB_TOKEN.trim()}`,
       "User-Agent": "nectarlink-release-bot/0.1",
       "X-GitHub-Api-Version": "2022-11-28",
     },

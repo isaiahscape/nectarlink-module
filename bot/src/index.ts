@@ -270,8 +270,9 @@ export default {
       return new Response("Method Not Allowed", { status: 405 });
     }
 
-    const headerSecret = request.headers.get("X-Telegram-Bot-Api-Secret-Token") ?? "";
-    if (!env.TELEGRAM_WEBHOOK_SECRET || !constantTimeEqual(headerSecret, env.TELEGRAM_WEBHOOK_SECRET)) {
+    const headerSecret = (request.headers.get("X-Telegram-Bot-Api-Secret-Token") ?? "").trim();
+    const expectedSecret = (env.TELEGRAM_WEBHOOK_SECRET ?? "").trim();
+    if (!expectedSecret || !constantTimeEqual(headerSecret, expectedSecret)) {
       return new Response("Forbidden", { status: 403 });
     }
 

@@ -7,7 +7,7 @@ export async function callTelegram(
   method: "sendMessage" | "editMessageText" | "answerCallbackQuery",
   payload: Record<string, unknown>,
 ): Promise<void> {
-  const res = await fetch(`https://api.telegram.org/bot${token}/${method}`, {
+  const res = await fetch(`https://api.telegram.org/bot${token.trim()}/${method}`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(payload),
