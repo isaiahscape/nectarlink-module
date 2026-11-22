@@ -209,23 +209,32 @@ jobs:
           ' "$FULL_STATE" "$PREV_STATE")"
           fi
 
-          NOTES="$(python3 -c '
-          import json, sys
+          NOTES="$(python3 - "$FULL_STATE" <<'PY'
+          import json
+          import sys
+
           s = json.loads(sys.argv[1])
+          canary_title = s.get("canary_title") or "canary"
+          canary_commit = s.get("canary_commit") or "canary"
+          nightly_tag = s.get("nightly_tag") or "none"
+          stable_tag = s.get("stable_tag") or "none"
+          services_sha = s.get("services_sha", "")[:7]
+          module_sha = s.get("module_sha", "")[:7]
           lines = [
               "Automated pre-release module packages built against signed **thtbee/nectarlink** client APKs and **Nectarlink Services** (`sn.nectarlink.services`).",
               "",
               "| Bundle | Upstream Build | Commit / Tag |",
               "|---|---|---|",
-              f"| `*-canary.zip` | `{s.get(\"canary_title\") or \"canary\"}` | `{s.get(\"canary_commit\") or \"canary\"}` |",
-              f"| `*-nightly.zip` | Nightly | `{s.get(\"nightly_tag\") or \"none\"}` |",
-              f"| `*-stable.zip` | Stable | `{s.get(\"stable_tag\") or \"none\"}` |",
+              f"| `*-canary.zip` | `{canary_title}` | `{canary_commit}` |",
+              f"| `*-nightly.zip` | Nightly | `{nightly_tag}` |",
+              f"| `*-stable.zip` | Stable | `{stable_tag}` |",
               "",
-              f"- **Nectarlink Services:** `isaiahscape/nectarlink-services` @ `{s.get(\"services_sha\", \"\")[:7]}`",
-              f"- **Nectarlink Module:** `isaiahscape/nectarlink-module` @ `{s.get(\"module_sha\", \"\")[:7]}`",
+              f"- **Nectarlink Services:** `isaiahscape/nectarlink-services` @ `{services_sha}`",
+              f"- **Nectarlink Module:** `isaiahscape/nectarlink-module` @ `{module_sha}`",
           ]
           print("\n".join(lines))
-          ' "$FULL_STATE")"
+          PY
+          )"
 
           {
             echo "due=$DUE"
