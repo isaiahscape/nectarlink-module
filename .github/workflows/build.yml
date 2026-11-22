@@ -4,6 +4,14 @@ name: Build Flashable Module
 on:
   push:
     tags: ["v*"]
+  schedule:
+    # Poll thtbee/nectarlink releases so new Canary/Nightly/Stable APKs trigger module pre-releases.
+    - cron: "*/30 * * * *"
+  repository_dispatch:
+    types:
+      - nectarlink-canary
+      - nectarlink-nightly
+      - nectarlink-release
   workflow_dispatch:
     inputs:
       services_ref:
@@ -14,6 +22,7 @@ on:
         description: thtbee/nectarlink APK channel(s) to bundle
         type: choice
         options:
+          - canary-nightly-and-stable
           - nightly-and-stable
           - canary-and-stable
           - canary
@@ -21,9 +30,9 @@ on:
           - stable
           - none
         required: false
-        default: "nightly-and-stable"
+        default: "canary-nightly-and-stable"
       version:
-        description: Override module/APK version (optional, e.g. 0.1.0)
+        description: Override module/APK version (optional, e.g. 0.1.6)
         required: false
         default: ""
       create_prerelease:
@@ -32,16 +41,209 @@ on:
         required: false
         default: false
       release_tag:
-        description: Pre-release tag when create_prerelease is enabled (default v<version>-pre)
+        description: Pre-release tag when publishing (default v<version>-nightly)
         required: false
         default: ""
 
 permissions:
   contents: write
 
+concurrency:
+  group: build-${{ github.ref }}
+  cancel-in-progress: false
+
 jobs:
+  plan:
+    name: Resolve Build Plan & Upstream State
+    runs-on: ubuntu-latest
+    outputs:
+      due: ${{ steps.plan.outputs.due }}
+      version: ${{ steps.plan.outputs.version }}
+      version_code: ${{ steps.plan.outputs.version_code }}
+      channels: ${{ steps.plan.outputs.channels }}
+      publish_prerelease: ${{ steps.plan.outputs.publish_prerelease }}
+      release_tag: ${{ steps.plan.outputs.release_tag }}
+      upstream_state_json: ${{ steps.plan.outputs.upstream_state_json }}
+      prerelease_notes: ${{ steps.plan.outputs.prerelease_notes }}
+    steps:
+      - name: Checkout module
+        uses: actions/checkout@v7
+
+      - name: Resolve version, channels & upstream trigger state
+        id: plan
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EVENT_NAME: ${{ github.event_name }}
+          EVENT_ACTION: ${{ github.event.action }}
+          INPUT_SERVICES_REF: ${{ github.event.inputs.services_ref }}
+          INPUT_CHANNEL: ${{ github.event.inputs.nectarlink_channel }}
+          INPUT_VERSION: ${{ github.event.inputs.version }}
+          INPUT_CREATE_PRE: ${{ github.event.inputs.create_prerelease }}
+          INPUT_RELEASE_TAG: ${{ github.event.inputs.release_tag }}
+          REF_NAME: ${{ github.ref_name }}
+          FULL_REF: ${{ github.ref }}
+          RUN_NUMBER: ${{ github.run_number }}
+          MODULE_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          PROP_VER="$(grep -E '^version=' module.prop | cut -d= -f2- | sed 's/^v//')"
+          PROP_CODE="$(grep -E '^versionCode=' module.prop | cut -d= -f2-)"
+
+          # Inspect upstream thtbee/nectarlink releases + isaiahscape/nectarlink-services main SHA.
+          gh api "repos/thtbee/nectarlink/releases?per_page=30" > /tmp/upstream_releases.json
+          gh api "repos/thtbee/nectarlink/releases/latest" > /tmp/upstream_latest.json || echo '{}' > /tmp/upstream_latest.json
+          SERVICES_SHA="$(gh api "repos/isaiahscape/nectarlink-services/commits/${INPUT_SERVICES_REF:-main}" --jq '.sha')"
+
+          UPSTREAM_META="$(python3 - <<'PY'
+          import json
+          import re
+
+          with open("/tmp/upstream_releases.json", "r", encoding="utf-8") as fh:
+              releases = json.load(fh)
+          with open("/tmp/upstream_latest.json", "r", encoding="utf-8") as fh:
+              stable = json.load(fh)
+
+          def find_apk(rel):
+              for a in rel.get("assets", []):
+                  if re.match(r"^Nectarlink-.*-android\.apk$", a.get("name", "")):
+                      digest = (a.get("digest") or "").removeprefix("sha256:")
+                      return a.get("name", ""), digest, str(a.get("id", ""))
+              return "", "", ""
+
+          canary_rel = next((r for r in releases if not r.get("draft") and r.get("tag_name") == "canary"), None)
+          nightly_rel = next(
+              (r for r in releases if not r.get("draft") and r.get("prerelease")
+               and re.match(r"^v[0-9]+\.[0-9]+\.[0-9]+-nightly\.[0-9]+$", r.get("tag_name", ""))),
+              None,
+          )
+
+          base_ver = ""
+          if nightly_rel:
+              m = re.match(r"^v([0-9]+\.[0-9]+\.[0-9]+)-nightly\.", nightly_rel["tag_name"])
+              if m:
+                  base_ver = m.group(1)
+
+          canary_name, canary_sha, canary_id = find_apk(canary_rel or {})
+          nightly_name, nightly_sha, nightly_id = find_apk(nightly_rel or {})
+          stable_name, stable_sha, stable_id = find_apk(stable or {})
+
+          state = {
+              "canary_title": (canary_rel or {}).get("name", ""),
+              "canary_commit": ((canary_rel or {}).get("target_commitish") or "")[:7],
+              "canary_sha256": canary_sha or canary_id,
+              "nightly_tag": (nightly_rel or {}).get("tag_name", ""),
+              "nightly_sha256": nightly_sha or nightly_id,
+              "stable_tag": (stable or {}).get("tag_name", ""),
+              "stable_sha256": stable_sha or stable_id,
+              "base_version": base_ver,
+          }
+          print(json.dumps(state, sort_keys=True))
+          PY
+          )"
+
+          BASE_VER="$(python3 -c 'import json,sys; print(json.loads(sys.argv[1]).get("base_version",""))' "$UPSTREAM_META")"
+          VER="$INPUT_VERSION"
+          if [ -z "$VER" ] && [[ "$FULL_REF" == refs/tags/v* ]]; then
+            VER="${REF_NAME#v}"
+          fi
+          VER="${VER:-${BASE_VER:-${PROP_VER:-0.1.0}}}"
+
+          CODE="${PROP_CODE:-1}"
+          if [ "$RUN_NUMBER" -gt "$CODE" ] 2>/dev/null; then
+            CODE="$RUN_NUMBER"
+          fi
+
+          if [ "$EVENT_NAME" = "schedule" ] || [ "$EVENT_NAME" = "repository_dispatch" ]; then
+            CHANNEL="canary-nightly-and-stable"
+          else
+            CHANNEL="${INPUT_CHANNEL:-nightly-and-stable}"
+          fi
+
+          case "$CHANNEL" in
+            canary-nightly-and-stable) CHANNELS="canary nightly stable" ;;
+            nightly-and-stable)        CHANNELS="nightly stable" ;;
+            canary-and-stable)         CHANNELS="canary stable" ;;
+            canary|nightly|stable|none) CHANNELS="$CHANNEL" ;;
+            *)
+              echo "Unsupported nectarlink_channel: $CHANNEL" >&2
+              exit 1
+              ;;
+          esac
+
+          PUBLISH_PRE="false"
+          if [ "$EVENT_NAME" = "schedule" ] || [ "$EVENT_NAME" = "repository_dispatch" ]; then
+            PUBLISH_PRE="true"
+          elif [ "$EVENT_NAME" = "workflow_dispatch" ] && { [ "$INPUT_CREATE_PRE" = "true" ] || [ "$INPUT_CREATE_PRE" = "1" ]; }; then
+            PUBLISH_PRE="true"
+          fi
+
+          REL_TAG="${INPUT_RELEASE_TAG:-v${VER}-nightly}"
+
+          FULL_STATE="$(python3 -c '
+          import json, sys
+          s = json.loads(sys.argv[1])
+          s["services_sha"] = sys.argv[2]
+          s["module_sha"] = sys.argv[3]
+          print(json.dumps(s, sort_keys=True))
+          ' "$UPSTREAM_META" "$SERVICES_SHA" "${MODULE_SHA:0:7}")"
+
+          DUE="true"
+          if [ "$EVENT_NAME" = "schedule" ]; then
+            DUE="false"
+            PREV_STATE="{}"
+            if gh release download "$REL_TAG" --repo "$GITHUB_REPOSITORY" --pattern "upstream-state.json" --dir /tmp --clobber 2>/dev/null; then
+              PREV_STATE="$(cat /tmp/upstream-state.json)"
+            fi
+            DUE="$(python3 -c '
+          import json, sys
+          cur = json.loads(sys.argv[1])
+          prev = json.loads(sys.argv[2])
+          keys = ("canary_sha256", "nightly_tag", "nightly_sha256", "stable_tag", "stable_sha256")
+          changed = [k for k in keys if cur.get(k) != prev.get(k)]
+          if changed:
+              sys.stderr.write("Upstream thtbee/nectarlink changed: " + ", ".join(changed) + "\n")
+              print("true")
+          else:
+              sys.stderr.write("No new thtbee/nectarlink canary, nightly, or stable release.\n")
+              print("false")
+          ' "$FULL_STATE" "$PREV_STATE")"
+          fi
+
+          NOTES="$(python3 -c '
+          import json, sys
+          s = json.loads(sys.argv[1])
+          lines = [
+              "Automated pre-release module packages built against signed **thtbee/nectarlink** client APKs and **Nectarlink Services** (`sn.nectarlink.services`).",
+              "",
+              "| Bundle | Upstream Build | Commit / Tag |",
+              "|---|---|---|",
+              f"| `*-canary.zip` | `{s.get(\"canary_title\") or \"canary\"}` | `{s.get(\"canary_commit\") or \"canary\"}` |",
+              f"| `*-nightly.zip` | Nightly | `{s.get(\"nightly_tag\") or \"none\"}` |",
+              f"| `*-stable.zip` | Stable | `{s.get(\"stable_tag\") or \"none\"}` |",
+              "",
+              f"- **Nectarlink Services:** `isaiahscape/nectarlink-services` @ `{s.get(\"services_sha\", \"\")[:7]}`",
+              f"- **Nectarlink Module:** `isaiahscape/nectarlink-module` @ `{s.get(\"module_sha\", \"\")[:7]}`",
+          ]
+          print("\n".join(lines))
+          ' "$FULL_STATE")"
+
+          {
+            echo "due=$DUE"
+            echo "version=$VER"
+            echo "version_code=$CODE"
+            echo "channels=$CHANNELS"
+            echo "publish_prerelease=$PUBLISH_PRE"
+            echo "release_tag=$REL_TAG"
+            echo "upstream_state_json=$FULL_STATE"
+            echo "prerelease_notes<<EOF_NOTES"
+            echo "$NOTES"
+            echo "EOF_NOTES"
+          } >> "$GITHUB_OUTPUT"
+
   build:
     name: Build APKs & Module Zip
+    needs: plan
+    if: needs.plan.outputs.due == 'true'
     runs-on: ubuntu-latest
     steps:
       - name: Checkout module
@@ -53,36 +255,6 @@ jobs:
           repository: isaiahscape/nectarlink-services
           ref: ${{ github.event.inputs.services_ref || 'main' }}
           path: src/nectarlink-services
-
-      - name: Resolve version & channel metadata
-        id: meta
-        run: |
-          PROP_VER="$(grep -E '^version=' module.prop | cut -d= -f2- | sed 's/^v//')"
-          PROP_CODE="$(grep -E '^versionCode=' module.prop | cut -d= -f2-)"
-          VER="${{ github.event.inputs.version }}"
-          if [ -z "$VER" ] && [[ "${{ github.ref }}" == refs/tags/v* ]]; then
-            VER="${GITHUB_REF_NAME#v}"
-          fi
-          VER="${VER:-${PROP_VER:-0.1.0}}"
-          CODE="${PROP_CODE:-1}"
-          if [ "${{ github.run_number }}" -gt "$CODE" ] 2>/dev/null; then
-            CODE="${{ github.run_number }}"
-          fi
-          CHANNEL="${{ github.event.inputs.nectarlink_channel }}"
-          CHANNEL="${CHANNEL:-nightly-and-stable}"
-          case "$CHANNEL" in
-            nightly-and-stable) CHANNELS="nightly stable" ;;
-            canary-and-stable)  CHANNELS="canary stable" ;;
-            canary|nightly|stable|none) CHANNELS="$CHANNEL" ;;
-            *)
-              echo "Unsupported nectarlink_channel: $CHANNEL" >&2
-              exit 1
-              ;;
-          esac
-          echo "version=$VER" >> "$GITHUB_OUTPUT"
-          echo "version_code=$CODE" >> "$GITHUB_OUTPUT"
-          echo "channel_mode=$CHANNEL" >> "$GITHUB_OUTPUT"
-          echo "channels=$CHANNELS" >> "$GITHUB_OUTPUT"
 
       - name: Setup Java 21
         uses: actions/setup-java@v6
@@ -123,12 +295,13 @@ jobs:
         run: |
           chmod +x gradlew
           ./gradlew --no-daemon testDebugUnitTest :service:lintDebug :service:assembleRelease \
-            -Pservices.version="${{ steps.meta.outputs.version }}" \
-            -Pservices.versionCode="${{ steps.meta.outputs.version_code }}"
+            -Pservices.version="${{ needs.plan.outputs.version }}" \
+            -Pservices.versionCode="${{ needs.plan.outputs.version_code }}"
 
       - name: Fetch upstream Nectarlink APKs and build flashable module zip(s)
         env:
           GH_TOKEN: ${{ github.token }}
+          STATE_JSON: ${{ needs.plan.outputs.upstream_state_json }}
         run: |
           set -euo pipefail
           mkdir -p out
@@ -147,16 +320,15 @@ jobs:
           cp "$SVC_SRC" "$SVC_DEST"
           cp "$SVC_SRC" out/NectarlinkServices.apk
 
-          # Keep module.prop version synced for tagged/custom releases
-          sed -i "s/^version=.*/version=v${{ steps.meta.outputs.version }}/" module.prop
-          sed -i "s/^versionCode=.*/versionCode=${{ steps.meta.outputs.version_code }}/" module.prop
+          sed -i "s/^version=.*/version=v${{ needs.plan.outputs.version }}/" module.prop
+          sed -i "s/^versionCode=.*/versionCode=${{ needs.plan.outputs.version_code }}/" module.prop
 
           chmod +x action.sh customize.sh post-fs-data.sh service.sh uninstall.sh META-INF/com/google/android/update-binary
 
-          for ch in ${{ steps.meta.outputs.channels }}; do
+          for ch in ${{ needs.plan.outputs.channels }}; do
             if [ "$ch" = "none" ]; then
               rm -f "$APP_DEST"
-              ZIP_NAME="nectarlink-services-v${{ steps.meta.outputs.version }}.zip"
+              ZIP_NAME="nectarlink-services-v${{ needs.plan.outputs.version }}.zip"
             else
               CLIENT_DIR="out/client-${ch}"
               sh "$FETCH" --channel "$ch" --dest "$CLIENT_DIR"
@@ -168,14 +340,13 @@ jobs:
               "$APKSIGNER" verify --print-certs "$APP_SRC"
               cp "$APP_SRC" "$APP_DEST"
               cp "$APP_SRC" "out/Nectarlink-${ch}.apk"
-              ZIP_NAME="nectarlink-services-v${{ steps.meta.outputs.version }}-${ch}.zip"
+              ZIP_NAME="nectarlink-services-v${{ needs.plan.outputs.version }}-${ch}.zip"
             fi
 
             rm -f "out/$ZIP_NAME"
             zip -r9 "out/$ZIP_NAME" . \
               -x ".git/*" ".git" ".github/*" ".github" "src/*" "src" "out/*" "out" ".gitignore" ".gitattributes"
 
-            # Verify module.prop is at zip root and real APKs are packaged
             unzip -l "out/$ZIP_NAME" | grep -E "^\s+[0-9]+.*\smodule\.prop$"
             unzip -l "out/$ZIP_NAME" | grep "NectarlinkServices.apk"
             if [ "$ch" != "none" ]; then
@@ -184,6 +355,7 @@ jobs:
           done
 
           (cd out && rm -f SHA256SUMS.txt && sha256sum *.zip *.apk > SHA256SUMS.txt)
+          printf '%s\n' "$STATE_JSON" > out/upstream-state.json
           cat out/SHA256SUMS.txt
 
       - name: Clean up signing keystore
@@ -193,7 +365,7 @@ jobs:
       - name: Upload artifacts
         uses: actions/upload-artifact@v7
         with:
-          name: nectarlink-module-v${{ steps.meta.outputs.version }}
+          name: nectarlink-module-v${{ needs.plan.outputs.version }}
           path: |
             out/*.zip
             out/*.apk
@@ -210,17 +382,21 @@ jobs:
             --generate-notes
 
       - name: Create or update GitHub Pre-release
-        if: github.event_name == 'workflow_dispatch' && (github.event.inputs.create_prerelease == true || github.event.inputs.create_prerelease == 'true')
+        if: needs.plan.outputs.publish_prerelease == 'true'
         env:
           GH_TOKEN: ${{ github.token }}
+          TAG: ${{ needs.plan.outputs.release_tag }}
+          PRE_NOTES: ${{ needs.plan.outputs.prerelease_notes }}
         run: |
-          TAG="${{ github.event.inputs.release_tag }}"
-          TAG="${TAG:-v${{ steps.meta.outputs.version }}-pre}"
+          printf '%s\n' "$PRE_NOTES" > /tmp/prerelease_notes.md
           if gh release view "$TAG" >/dev/null 2>&1; then
-            gh release upload "$TAG" out/*.zip out/*.apk out/SHA256SUMS.txt --clobber
+            gh release upload "$TAG" out/*.zip out/*.apk out/SHA256SUMS.txt out/upstream-state.json --clobber
+            if [ "${{ github.event_name }}" = "schedule" ] || [ "${{ github.event_name }}" = "repository_dispatch" ]; then
+              gh release edit "$TAG" --notes-file /tmp/prerelease_notes.md
+            fi
           else
-            gh release create "$TAG" out/*.zip out/*.apk out/SHA256SUMS.txt \
+            gh release create "$TAG" out/*.zip out/*.apk out/SHA256SUMS.txt out/upstream-state.json \
               --prerelease \
               --title "Nectarlink Services Root Module — Pre-release ($TAG)" \
-              --generate-notes
+              --notes-file /tmp/prerelease_notes.md
           fi

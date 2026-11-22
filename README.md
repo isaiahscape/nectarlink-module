@@ -41,3 +41,4 @@ nectarlink-module/
 - `sepolicy.rule` grants `priv_app` access to `/dev/uhid` for hardware virtual gamepad and mouse support across Magisk, KernelSU, and APatch/FolkPatch.
 - `service.sh` and `action.sh` apply Doze (`deviceidle`) exemptions and app-op grants (`MANAGE_ONGOING_CALLS`, `RECEIVE_SENSITIVE_NOTIFICATIONS`, `GET_USAGE_STATS`, `WRITE_SETTINGS`, DND) for `app.nectarlink` / `app.nectarlink.dev`.
 - If your `Nectarlink` APK uses a different signing certificate than `config.xml` (`trusted_client_cert_sha256`), tap the module's **Action** button (or open **Nectarlink Services** settings) to approve it once.
+- `.github/workflows/build.yml` checks `thtbee/nectarlink` releases every 30 minutes (`schedule`) and also accepts `repository_dispatch` (`nectarlink-canary`, `nectarlink-nightly`, `nectarlink-release`) to rebuild and update the module pre-release automatically when upstream publishes a new Canary, Nightly, or Stable APK.
