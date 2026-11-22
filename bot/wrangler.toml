@@ -1,0 +1,11 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+name = "nectarlink-release-bot"
+main = "src/index.ts"
+compatibility_date = "2026-11-01"
+
+[vars]
+MODULE_REPO = "isaiahscape/nectarlink-module"
+SERVICES_REPO = "isaiahscape/nectarlink-services"
+UPSTREAM_REPO = "thtbee/nectarlink"
+WORKFLOW_FILE = "build.yml"
+DEFAULT_BRANCH = "main"

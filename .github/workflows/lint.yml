@@ -55,6 +55,22 @@ jobs:
         run: |
           find system -name '*.xml' -print0 | xargs -0 xmllint --noout
 
+  bot-lint:
+    name: Telegram Bot Typecheck & Tests
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: bot
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: bot/package-lock.json
+      - run: npm ci --no-audit --no-fund
+      - run: npm run check
+
   services-lint:
     name: Nectarlink Services Lint & Tests
     runs-on: ubuntu-latest

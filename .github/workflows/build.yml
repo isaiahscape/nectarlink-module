@@ -354,7 +354,7 @@ jobs:
 
             rm -f "out/$ZIP_NAME"
             zip -r9 "out/$ZIP_NAME" . \
-              -x ".git/*" ".git" ".github/*" ".github" "src/*" "src" "out/*" "out" ".gitignore" ".gitattributes"
+              -x ".git/*" ".git" ".github/*" ".github" "src/*" "src" "out/*" "out" "bot/*" "bot" ".gitignore" ".gitattributes"
 
             unzip -l "out/$ZIP_NAME" | grep -E "^\s+[0-9]+.*\smodule\.prop$"
             unzip -l "out/$ZIP_NAME" | grep "NectarlinkServices.apk"
@@ -409,3 +409,66 @@ jobs:
               --title "Nectarlink Services Root Module — Pre-release ($TAG)" \
               --notes-file /tmp/prerelease_notes.md
           fi
+
+  notify:
+    name: Notify Telegram
+    needs: [plan, build]
+    if: always() && needs.plan.outputs.due == 'true'
+    runs-on: ubuntu-latest
+    env:
+      BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+      CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+      BUILD_RESULT: ${{ needs.build.result }}
+      VERSION: ${{ needs.plan.outputs.version }}
+      CHANNELS: ${{ needs.plan.outputs.channels }}
+      RELEASE_TAG: ${{ needs.plan.outputs.release_tag }}
+      PUBLISH_PRE: ${{ needs.plan.outputs.publish_prerelease }}
+      EVENT_NAME: ${{ github.event_name }}
+      REF_NAME: ${{ github.ref_name }}
+    steps:
+      - name: Send Telegram completion message
+        if: env.BOT_TOKEN != '' && env.CHAT_ID != ''
+        run: |
+          python3 - <<'PY'
+          import json
+          import os
+          import urllib.request
+
+          result = os.environ["BUILD_RESULT"]
+          icon = "✅" if result == "success" else "❌"
+          repo = os.environ["GITHUB_REPOSITORY"]
+          run_url = f"{os.environ['GITHUB_SERVER_URL']}/{repo}/actions/runs/{os.environ['GITHUB_RUN_ID']}"
+          ref_name = os.environ["REF_NAME"]
+          event = os.environ["EVENT_NAME"]
+          version = os.environ["VERSION"]
+          channels = os.environ["CHANNELS"]
+
+          lines = [
+              f"{icon} <b>Build Flashable Module: {result}</b>",
+              f"• <b>Event:</b> <code>{event}</code>",
+              f"• <b>Version:</b> <code>{version}</code>",
+              f"• <b>Channels:</b> <code>{channels}</code>",
+              f"• <a href=\"{run_url}\">Workflow Run</a>",
+          ]
+          if event == "push" and ref_name.startswith("v"):
+              rel_url = f"{os.environ['GITHUB_SERVER_URL']}/{repo}/releases/tag/{ref_name}"
+              lines.append(f"• <a href=\"{rel_url}\">Release {ref_name}</a>")
+          elif os.environ["PUBLISH_PRE"] == "true":
+              pre_tag = os.environ["RELEASE_TAG"]
+              rel_url = f"{os.environ['GITHUB_SERVER_URL']}/{repo}/releases/tag/{pre_tag}"
+              lines.append(f"• <a href=\"{rel_url}\">Pre-release {pre_tag}</a>")
+
+          payload = json.dumps({
+              "chat_id": os.environ["CHAT_ID"],
+              "text": "\n".join(lines),
+              "parse_mode": "HTML",
+              "disable_web_page_preview": True,
+          }).encode("utf-8")
+          req = urllib.request.Request(
+              f"https://api.telegram.org/bot{os.environ['BOT_TOKEN']}/sendMessage",
+              data=payload,
+              headers={"Content-Type": "application/json"},
+          )
+          with urllib.request.urlopen(req, timeout=15) as resp:
+              print("Telegram notify status:", resp.status)
+          PY

@@ -1,6 +1,9 @@
 # Build outputs & checked-out source repositories
 /out/
 /src/
+/bot/node_modules/
+/bot/.wrangler/
+/bot/.dev.vars
 *.zip
 *.jks
 *.keystore
