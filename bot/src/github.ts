@@ -32,16 +32,30 @@ interface GitHubRelease {
 }
 
 async function ghFetch<T>(env: Env, path: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(`https://api.github.com${path}`, {
+  const baseHeaders = {
+    Accept: "application/vnd.github+json",
+    "User-Agent": "nectarlink-release-bot/0.1",
+    "X-GitHub-Api-Version": "2022-11-28",
+    ...(init?.headers ?? {}),
+  };
+  let res = await fetch(`https://api.github.com${path}`, {
     ...init,
     headers: {
-      Accept: "application/vnd.github+json",
+      ...baseHeaders,
       Authorization: `Bearer ${env.GITHUB_TOKEN}`,
-      "User-Agent": "nectarlink-release-bot/0.1",
-      "X-GitHub-Api-Version": "2022-11-28",
-      ...(init?.headers ?? {}),
     },
   });
+  // Fine-grained PATs scoped to MODULE_REPO return 403 on other owners' public repos; retry without auth.
+  if (
+    res.status === 403 &&
+    (!init?.method || init.method === "GET") &&
+    !path.startsWith(`/repos/${env.MODULE_REPO}/`)
+  ) {
+    res = await fetch(`https://api.github.com${path}`, {
+      ...init,
+      headers: baseHeaders,
+    });
+  }
   if (!res.ok) {
     const body = await res.text().catch(() => "");
     throw new Error(`GitHub API ${res.status} on ${path}: ${body.slice(0, 240)}`);
