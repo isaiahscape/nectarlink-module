@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 import {
-  BOT_COMMANDS,
   WORKFLOW_CHANNELS,
   buildChannelKeyboard,
   buildMainMenuKeyboard,
@@ -60,9 +59,6 @@ async function handleMessage(env: Env, msg: TelegramMessage, isChannelPost: bool
       return;
     }
   } else if (!isAuthorizedUser(msg.from?.id, env.ALLOWED_TELEGRAM_USER_IDS)) {
-    if (BOT_COMMANDS.has(parsed.command)) {
-      await sendHtml(env.TELEGRAM_BOT_TOKEN, msg.chat.id, "Unauthorized user.");
-    }
     return;
   }
 
