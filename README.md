@@ -32,7 +32,7 @@ nectarlink-module/
 ## Before Zipping & Flashing
 
 1. Replace `system/system_ext/priv-app/NectarlinkServices/NectarlinkServices.apk` with your compiled `NectarlinkServices` APK (**required** — `customize.sh` aborts if it is still a placeholder).
-2. *(Optional)* Replace `system/product/app/Nectarlink/Nectarlink.apk` with the NectarLink APK. If left as a placeholder, `customize.sh` skips preinstalling the user app so you can install/update `Nectarlink` normally from GitHub Releases.
+2. *(Optional)* Replace `system/product/app/Nectarlink/Nectarlink.apk` with an official `thtbee/nectarlink` APK (`stable`, `nightly`, or `canary` release — GitHub Actions CI can bundle `nightly-and-stable` or any selected channel automatically). If left as a placeholder, `customize.sh` skips preinstalling the user app so you can install/update `Nectarlink` normally from `thtbee/nectarlink` GitHub Releases.
 3. Zip the **contents** of `nectarlink-module/` (so `module.prop` is at the root of the `.zip`, not inside a subfolder) and flash in **Magisk**, **KernelSU**, or **APatch / FolkPatch**.
 
 ## Notes

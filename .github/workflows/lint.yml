@@ -87,7 +87,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7
         with:
-          repository: isaiahscape/nectarlink
+          repository: thtbee/nectarlink
           ref: main
 
       - name: Install Rust toolchain and Android targets
