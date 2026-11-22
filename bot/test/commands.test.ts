@@ -5,6 +5,7 @@ import test from "node:test";
 import {
   constantTimeEqual,
   escapeHtml,
+  isAuthorizedChat,
   isAuthorizedUser,
   parseBuildArgs,
   parseReleaseTag,
@@ -52,6 +53,13 @@ test("isAuthorizedUser enforces numeric allowlist", () => {
   assert.equal(isAuthorizedUser(999, "111, 123456789"), false);
   assert.equal(isAuthorizedUser(undefined, "123456789"), false);
   assert.equal(isAuthorizedUser(0, "0"), false);
+});
+
+test("isAuthorizedChat allows negative channel IDs", () => {
+  assert.equal(isAuthorizedChat(-1001234567890, "-1001234567890"), true);
+  assert.equal(isAuthorizedChat(-100999, "-1001234567890"), false);
+  assert.equal(isAuthorizedChat(0, "0"), false);
+  assert.equal(isAuthorizedChat(-1001234567890, undefined), false);
 });
 
 test("constantTimeEqual and escapeHtml work as expected", () => {

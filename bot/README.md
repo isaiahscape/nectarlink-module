@@ -39,7 +39,23 @@ Cloudflare Worker webhook that lets authorized Telegram users dispatch `Build Fl
 
 ## Optional: Completion Notifications from GitHub Actions
 
-If you want `Build Flashable Module` to message Telegram when any scheduled, tagged, or manual build finishes, add these two repository secrets to `isaiahscape/nectarlink-module`:
+If you want `Build Flashable Module` to post build status and release links to your Telegram DM, group, or **channel** whenever a scheduled, tagged, or manual build finishes:
 
-- `TELEGRAM_BOT_TOKEN` — your bot token
-- `TELEGRAM_CHAT_ID` — your Telegram user or group chat ID
+1. For a **Telegram Channel**: add your bot as a **Channel Administrator** with **Post Messages** (and **Edit Messages**) permission.
+2. Get your channel ID:
+   - Public channel: you can use `@your_channel_username` for GitHub Actions `TELEGRAM_CHAT_ID`.
+   - Private or numeric channel ID (`-100...`): forward any message from your channel to `@RawDataBot` and copy `forward_from_chat.id`.
+3. Add these two repository secrets to `isaiahscape/nectarlink-module`:
+   - `TELEGRAM_BOT_TOKEN` — your bot token
+   - `TELEGRAM_CHAT_ID` — your channel ID (`-100...` or `@your_channel_username`), group ID, or user ID
+
+## Optional: Run Commands Directly Inside a Channel
+
+If you also want to post `/build`, `/release`, `/status`, or `/upstream` directly in your Telegram channel:
+
+1. Set `ALLOWED_TELEGRAM_CHAT_IDS` on the Worker to your numeric channel ID (`-100...`):
+   ```sh
+   npx wrangler secret put ALLOWED_TELEGRAM_CHAT_IDS
+   ```
+2. Keep `ALLOWED_TELEGRAM_USER_IDS` set to your personal Telegram user ID so inline buttons clicked in the channel still verify your user ID.
+3. Re-run `npm run setup-webhook` so `"channel_post"` updates are enabled.

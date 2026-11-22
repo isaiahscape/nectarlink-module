@@ -26,7 +26,7 @@ async function tg(method, body) {
 await tg("setWebhook", {
   url: webhookUrl,
   secret_token: secretToken,
-  allowed_updates: ["message", "callback_query"],
+  allowed_updates: ["message", "channel_post", "callback_query"],
 });
 console.log("Webhook registered:", webhookUrl);
 

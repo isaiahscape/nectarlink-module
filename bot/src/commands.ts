@@ -10,6 +10,7 @@ export interface Env {
   TELEGRAM_WEBHOOK_SECRET: string;
   GITHUB_TOKEN: string;
   ALLOWED_TELEGRAM_USER_IDS: string;
+  ALLOWED_TELEGRAM_CHAT_IDS?: string;
 }
 
 export const WORKFLOW_CHANNELS = [
@@ -60,17 +61,28 @@ export function constantTimeEqual(a: string, b: string): boolean {
   return diff === 0;
 }
 
-export function isAuthorizedUser(userId: number | undefined, allowedCsv: string): boolean {
-  if (userId === undefined || !Number.isInteger(userId) || userId <= 0) {
-    return false;
-  }
-  const allowed = new Set(
+function parseAllowedIds(allowedCsv: string | undefined, pattern: RegExp): Set<string> {
+  if (!allowedCsv) return new Set();
+  return new Set(
     allowedCsv
       .split(/[,\s]+/)
       .map((s) => s.trim())
-      .filter((s) => /^\d+$/.test(s)),
+      .filter((s) => pattern.test(s)),
   );
-  return allowed.has(String(userId));
+}
+
+export function isAuthorizedUser(userId: number | undefined, allowedCsv: string | undefined): boolean {
+  if (userId === undefined || !Number.isInteger(userId) || userId <= 0) {
+    return false;
+  }
+  return parseAllowedIds(allowedCsv, /^\d+$/).has(String(userId));
+}
+
+export function isAuthorizedChat(chatId: number | undefined, allowedCsv: string | undefined): boolean {
+  if (chatId === undefined || !Number.isInteger(chatId) || chatId === 0) {
+    return false;
+  }
+  return parseAllowedIds(allowedCsv, /^-?\d+$/).has(String(chatId));
 }
 
 export interface ParsedCommand {

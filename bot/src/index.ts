@@ -9,6 +9,7 @@ import {
   constantTimeEqual,
   escapeHtml,
   helpMessage,
+  isAuthorizedChat,
   isAuthorizedUser,
   parseBuildArgs,
   parseReleaseTag,
@@ -44,11 +45,17 @@ interface TelegramCallbackQuery {
 
 interface TelegramUpdate {
   message?: TelegramMessage;
+  channel_post?: TelegramMessage;
   callback_query?: TelegramCallbackQuery;
 }
 
-async function handleMessage(env: Env, msg: TelegramMessage): Promise<void> {
-  if (!isAuthorizedUser(msg.from?.id, env.ALLOWED_TELEGRAM_USER_IDS)) {
+async function handleMessage(env: Env, msg: TelegramMessage, isChannelPost: boolean): Promise<void> {
+  if (isChannelPost) {
+    // Only channel admins can post channel messages; check the channel ID allowlist.
+    if (!isAuthorizedChat(msg.chat.id, env.ALLOWED_TELEGRAM_CHAT_IDS)) {
+      return;
+    }
+  } else if (!isAuthorizedUser(msg.from?.id, env.ALLOWED_TELEGRAM_USER_IDS)) {
     await sendHtml(env.TELEGRAM_BOT_TOKEN, msg.chat.id, "Unauthorized user.");
     return;
   }
@@ -277,13 +284,18 @@ export default {
 
     try {
       if (update.message) {
-        await handleMessage(env, update.message);
+        await handleMessage(env, update.message, false);
+      } else if (update.channel_post) {
+        await handleMessage(env, update.channel_post, true);
       } else if (update.callback_query) {
         await handleCallback(env, update.callback_query);
       }
     } catch (err) {
       const msgText = err instanceof Error ? err.message : String(err);
-      const chatId = update.message?.chat.id ?? update.callback_query?.message?.chat.id;
+      const chatId =
+        update.message?.chat.id ??
+        update.channel_post?.chat.id ??
+        update.callback_query?.message?.chat.id;
       if (chatId && env.TELEGRAM_BOT_TOKEN) {
         await sendHtml(env.TELEGRAM_BOT_TOKEN, chatId, `❌ <b>Error:</b> <code>${escapeHtml(msgText)}</code>`).catch(
           () => undefined,
