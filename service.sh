@@ -17,8 +17,8 @@ while [ "$TRIES" -lt 30 ]; do
   sleep 1
 done
 
-dumpsys deviceidle whitelist +app.nectarlink.services >/dev/null 2>&1
-appops set app.nectarlink.services WRITE_SETTINGS allow >/dev/null 2>&1
+dumpsys deviceidle whitelist +sn.nectarlink.services >/dev/null 2>&1
+appops set sn.nectarlink.services WRITE_SETTINGS allow >/dev/null 2>&1
 
 for PKG in app.nectarlink app.nectarlink.dev; do
   if pm path "$PKG" >/dev/null 2>&1; then
@@ -48,7 +48,7 @@ gen_token() {
 }
 
 start_shell_bridge() {
-  SVC_APK="$(pm path app.nectarlink.services 2>/dev/null | head -n 1 | sed 's/^package://')"
+  SVC_APK="$(pm path sn.nectarlink.services 2>/dev/null | head -n 1 | sed 's/^package://')"
   [ -z "$SVC_APK" ] && return 1
   TOKEN="$(gen_token)"
   [ -z "$TOKEN" ] && return 1
@@ -87,13 +87,13 @@ start_shell_bridge() {
 
   broadcast_ready() {
     am broadcast --user 0 -f 0x10000000 \
-      -p app.nectarlink.services \
-      -a app.nectarlink.services.ACTION_SHELL_READY \
+      -p sn.nectarlink.services \
+      -a sn.nectarlink.services.ACTION_SHELL_READY \
       --ei shell_port "$PORT" \
       --es shell_token "$TOKEN" >/dev/null 2>&1
     am broadcast --user 0 -f 0x10000000 \
-      -n app.nectarlink.services/.service.ShellBridgeReceiver \
-      -a app.nectarlink.services.ACTION_SHELL_READY \
+      -n sn.nectarlink.services/app.nectarlink.services.service.ShellBridgeReceiver \
+      -a sn.nectarlink.services.ACTION_SHELL_READY \
       --ei shell_port "$PORT" \
       --es shell_token "$TOKEN" >/dev/null 2>&1
   }

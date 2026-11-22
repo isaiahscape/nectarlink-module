@@ -1,6 +1,6 @@
 # Nectarlink Services Root Module
 
-Systemless root module for **Magisk**, **KernelSU** (including KernelSU Next / SukiSU), and **APatch / FolkPatch** to run **Nectarlink Services** (`app.nectarlink.services`) as a privileged system app without Wireless Debugging, USB ADB, Shizuku, or `su` shell helpers.
+Systemless root module for **Magisk**, **KernelSU** (including KernelSU Next / SukiSU), and **APatch / FolkPatch** to run **Nectarlink Services** (`sn.nectarlink.services`) as a privileged system app without Wireless Debugging, USB ADB, Shizuku, or `su` shell helpers.
 
 ## Module Structure
 
@@ -18,9 +18,9 @@ nectarlink-module/
 │   └── system_ext/
 │       ├── priv-app/NectarlinkServices/NectarlinkServices.apk     (placeholder, required)
 │       └── etc/
-│           ├── permissions/privapp-permissions-app.nectarlink.services.xml
-│           ├── default-permissions/default-permissions-app.nectarlink.services.xml
-│           └── sysconfig/sysconfig-app.nectarlink.services.xml
+│           ├── permissions/privapp-permissions-sn.nectarlink.services.xml
+│           ├── default-permissions/default-permissions-sn.nectarlink.services.xml
+│           └── sysconfig/sysconfig-sn.nectarlink.services.xml
 ├── action.sh
 ├── customize.sh
 ├── module.prop

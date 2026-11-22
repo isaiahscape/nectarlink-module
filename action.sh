@@ -11,8 +11,8 @@ else
   echo "- Manager: Magisk"
 fi
 
-if pm path app.nectarlink.services >/dev/null 2>&1; then
-  echo "- Nectarlink Services: installed ($(pm path app.nectarlink.services | head -n 1))"
+if pm path sn.nectarlink.services >/dev/null 2>&1; then
+  echo "- Nectarlink Services: installed ($(pm path sn.nectarlink.services | head -n 1))"
 else
   echo "! Nectarlink Services is not visible to PackageManager"
 fi
@@ -30,5 +30,5 @@ for PKG in app.nectarlink app.nectarlink.dev; do
 done
 
 echo "- Opening Nectarlink Services settings..."
-am start -a app.nectarlink.services.ACTION_SETTINGS >/dev/null 2>&1 || \
-  am start -n app.nectarlink.services/.ui.ServicesSettingsActivity >/dev/null 2>&1
+am start -a sn.nectarlink.services.ACTION_SETTINGS >/dev/null 2>&1 || \
+  am start -n sn.nectarlink.services/app.nectarlink.services.ui.ServicesSettingsActivity >/dev/null 2>&1
