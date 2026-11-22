@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 import {
+  BOT_COMMANDS,
   WORKFLOW_CHANNELS,
   buildChannelKeyboard,
   buildMainMenuKeyboard,
@@ -50,18 +51,20 @@ interface TelegramUpdate {
 }
 
 async function handleMessage(env: Env, msg: TelegramMessage, isChannelPost: boolean): Promise<void> {
+  const parsed = parseSlashCommand(msg.text);
+  if (!parsed) return;
+
   if (isChannelPost) {
     // Only channel admins can post channel messages; check the channel ID allowlist.
     if (!isAuthorizedChat(msg.chat.id, env.ALLOWED_TELEGRAM_CHAT_IDS)) {
       return;
     }
   } else if (!isAuthorizedUser(msg.from?.id, env.ALLOWED_TELEGRAM_USER_IDS)) {
-    await sendHtml(env.TELEGRAM_BOT_TOKEN, msg.chat.id, "Unauthorized user.");
+    if (BOT_COMMANDS.has(parsed.command)) {
+      await sendHtml(env.TELEGRAM_BOT_TOKEN, msg.chat.id, "Unauthorized user.");
+    }
     return;
   }
-
-  const parsed = parseSlashCommand(msg.text);
-  if (!parsed) return;
 
   switch (parsed.command) {
     case "start":

@@ -3,6 +3,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
+  BOT_COMMANDS,
   constantTimeEqual,
   escapeHtml,
   isAuthorizedChat,
@@ -67,4 +68,12 @@ test("constantTimeEqual and escapeHtml work as expected", () => {
   assert.equal(constantTimeEqual("secret-123", "secret-124"), false);
   assert.equal(constantTimeEqual("short", "longer"), false);
   assert.equal(escapeHtml('<script>"a&b"'), "&lt;script&gt;&quot;a&amp;b&quot;");
+});
+
+test("BOT_COMMANDS includes release trigger commands only", () => {
+  assert.equal(BOT_COMMANDS.has("build"), true);
+  assert.equal(BOT_COMMANDS.has("release"), true);
+  assert.equal(BOT_COMMANDS.has("status"), true);
+  assert.equal(BOT_COMMANDS.has("upstream"), true);
+  assert.equal(BOT_COMMANDS.has("other"), false);
 });

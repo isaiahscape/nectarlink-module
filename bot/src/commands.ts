@@ -85,6 +85,15 @@ export function isAuthorizedChat(chatId: number | undefined, allowedCsv: string 
   return parseAllowedIds(allowedCsv, /^-?\d+$/).has(String(chatId));
 }
 
+export const BOT_COMMANDS: ReadonlySet<string> = new Set([
+  "start",
+  "help",
+  "build",
+  "release",
+  "status",
+  "upstream",
+]);
+
 export interface ParsedCommand {
   command: string;
   args: string[];
